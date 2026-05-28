@@ -89,6 +89,18 @@ public class PdfiumCore {
 
     private native RectF nativeGetLinkRect(long linkPtr);
 
+    private native long nativeLoadTextPage(long pagePtr);
+
+    private native void nativeCloseTextPage(long textPagePtr);
+
+    private native int nativeTextCountChars(long textPagePtr);
+
+    private native String nativeTextGetText(long textPagePtr, int startIndex, int count);
+
+    private native RectF nativeTextGetCharBox(long textPagePtr, int index);
+
+    private native int[] nativeTextSearch(long textPagePtr, String pattern);
+
     private native Point nativePageCoordsToDevice(long pagePtr, int startX, int startY, int sizeX,
                                                   int sizeY, int rotate, double pageX, double pageY);
 
@@ -409,6 +421,69 @@ public class PdfiumCore {
 
             }
             return links;
+        }
+    }
+
+    /** Open a text page. Caller must close the returned handle with {@link #closeTextPage(long)}. */
+    public long openTextPage(PdfDocument doc, int pageIndex) {
+        synchronized (lock) {
+            Long pagePtr = doc.mNativePagesPtr.get(pageIndex);
+            if (pagePtr == null) {
+                return 0;
+            }
+            return nativeLoadTextPage(pagePtr);
+        }
+    }
+
+    /** Close a text page opened by {@link #openTextPage(PdfDocument, int)}. */
+    public void closeTextPage(long textPagePtr) {
+        if (textPagePtr == 0) {
+            return;
+        }
+        synchronized (lock) {
+            nativeCloseTextPage(textPagePtr);
+        }
+    }
+
+    /** Count characters on a text page. */
+    public int getTextCharsCount(long textPagePtr) {
+        if (textPagePtr == 0) {
+            return 0;
+        }
+        synchronized (lock) {
+            return Math.max(0, nativeTextCountChars(textPagePtr));
+        }
+    }
+
+    /** Extract text from a text page. */
+    public String getText(long textPagePtr, int startIndex, int count) {
+        if (textPagePtr == 0 || startIndex < 0 || count <= 0) {
+            return "";
+        }
+        synchronized (lock) {
+            String text = nativeTextGetText(textPagePtr, startIndex, count);
+            return text != null ? text : "";
+        }
+    }
+
+    /** Get a character box in PDF page coordinates. */
+    public RectF getTextCharBox(long textPagePtr, int index) {
+        if (textPagePtr == 0 || index < 0) {
+            return null;
+        }
+        synchronized (lock) {
+            return nativeTextGetCharBox(textPagePtr, index);
+        }
+    }
+
+    /** Return search results as start/count pairs. */
+    public int[] searchText(long textPagePtr, String pattern) {
+        if (textPagePtr == 0 || pattern == null || pattern.length() == 0) {
+            return new int[0];
+        }
+        synchronized (lock) {
+            int[] results = nativeTextSearch(textPagePtr, pattern);
+            return results != null ? results : new int[0];
         }
     }
 

@@ -16,6 +16,7 @@ using namespace android;
 
 #include <fpdfview.h>
 #include <fpdf_doc.h>
+#include <fpdf_text.h>
 #include <string>
 #include <vector>
 
@@ -674,6 +675,108 @@ JNI_FUNC(jobject, PdfiumCore, nativeGetLinkRect)(JNI_ARGS, jlong linkPtr) {
     jclass clazz = env->FindClass("android/graphics/RectF");
     jmethodID constructorID = env->GetMethodID(clazz, "<init>", "(FFFF)V");
     return env->NewObject(clazz, constructorID, fsRectF.left, fsRectF.top, fsRectF.right, fsRectF.bottom);
+}
+
+JNI_FUNC(jlong, PdfiumCore, nativeLoadTextPage)(JNI_ARGS, jlong pagePtr) {
+    FPDF_PAGE page = reinterpret_cast<FPDF_PAGE>(pagePtr);
+    if (page == NULL) {
+        return 0;
+    }
+    return reinterpret_cast<jlong>(FPDFText_LoadPage(page));
+}
+
+JNI_FUNC(void, PdfiumCore, nativeCloseTextPage)(JNI_ARGS, jlong textPagePtr) {
+    FPDF_TEXTPAGE textPage = reinterpret_cast<FPDF_TEXTPAGE>(textPagePtr);
+    if (textPage != NULL) {
+        FPDFText_ClosePage(textPage);
+    }
+}
+
+JNI_FUNC(jint, PdfiumCore, nativeTextCountChars)(JNI_ARGS, jlong textPagePtr) {
+    FPDF_TEXTPAGE textPage = reinterpret_cast<FPDF_TEXTPAGE>(textPagePtr);
+    if (textPage == NULL) {
+        return 0;
+    }
+    return (jint)FPDFText_CountChars(textPage);
+}
+
+JNI_FUNC(jstring, PdfiumCore, nativeTextGetText)(JNI_ARGS, jlong textPagePtr, jint startIndex, jint count) {
+    FPDF_TEXTPAGE textPage = reinterpret_cast<FPDF_TEXTPAGE>(textPagePtr);
+    if (textPage == NULL || startIndex < 0 || count <= 0) {
+        return env->NewStringUTF("");
+    }
+
+    std::vector<unsigned short> buffer((size_t)count + 1);
+    const int written = FPDFText_GetText(textPage, startIndex, count, buffer.data());
+    if (written <= 1) {
+        return env->NewStringUTF("");
+    }
+    return env->NewString((jchar*)buffer.data(), written - 1);
+}
+
+JNI_FUNC(jobject, PdfiumCore, nativeTextGetCharBox)(JNI_ARGS, jlong textPagePtr, jint index) {
+    FPDF_TEXTPAGE textPage = reinterpret_cast<FPDF_TEXTPAGE>(textPagePtr);
+    if (textPage == NULL || index < 0) {
+        return NULL;
+    }
+
+    double left, right, bottom, top;
+    if (!FPDFText_GetCharBox(textPage, index, &left, &right, &bottom, &top)) {
+        return NULL;
+    }
+
+    jclass clazz = env->FindClass("android/graphics/RectF");
+    jmethodID constructorID = env->GetMethodID(clazz, "<init>", "(FFFF)V");
+    return env->NewObject(
+        clazz,
+        constructorID,
+        (jfloat)left,
+        (jfloat)top,
+        (jfloat)right,
+        (jfloat)bottom
+    );
+}
+
+JNI_FUNC(jintArray, PdfiumCore, nativeTextSearch)(JNI_ARGS, jlong textPagePtr, jstring pattern) {
+    FPDF_TEXTPAGE textPage = reinterpret_cast<FPDF_TEXTPAGE>(textPagePtr);
+    if (textPage == NULL || pattern == NULL) {
+        return env->NewIntArray(0);
+    }
+
+    const jsize length = env->GetStringLength(pattern);
+    if (length == 0) {
+        return env->NewIntArray(0);
+    }
+
+    const jchar *chars = env->GetStringChars(pattern, NULL);
+    if (chars == NULL) {
+        return env->NewIntArray(0);
+    }
+
+    std::vector<unsigned short> searchText((size_t)length + 1);
+    for (jsize i = 0; i < length; ++i) {
+        searchText[i] = chars[i];
+    }
+    searchText[length] = 0;
+    env->ReleaseStringChars(pattern, chars);
+
+    FPDF_SCHHANDLE search = FPDFText_FindStart(textPage, searchText.data(), 0, 0);
+    if (search == NULL) {
+        return env->NewIntArray(0);
+    }
+
+    std::vector<jint> results;
+    while (FPDFText_FindNext(search)) {
+        results.push_back((jint)FPDFText_GetSchResultIndex(search));
+        results.push_back((jint)FPDFText_GetSchCount(search));
+    }
+    FPDFText_FindClose(search);
+
+    jintArray array = env->NewIntArray((jsize)results.size());
+    if (!results.empty()) {
+        env->SetIntArrayRegion(array, 0, (jsize)results.size(), results.data());
+    }
+    return array;
 }
 
 JNI_FUNC(jobject, PdfiumCore, nativePageCoordsToDevice)(JNI_ARGS, jlong pagePtr, jint startX, jint startY, jint sizeX,
