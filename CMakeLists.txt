@@ -26,12 +26,12 @@ target_include_directories(jniPdfium
         PRIVATE ${CMAKE_SOURCE_DIR}/src/main/jni/include
 )
 
-# Specify the dependent dynamic libraries to link against
+# This complete archive includes PDFium's bundled third-party libraries.
+# build-static.sh also selects the NDK's static libc++ runtime.
 target_link_libraries(jniPdfium
-        PRIVATE ${CMAKE_SOURCE_DIR}/src/main/jni/lib/${ANDROID_ABI}/libmodft2.so
-        PRIVATE ${CMAKE_SOURCE_DIR}/src/main/jni/lib/${ANDROID_ABI}/libmodpdfium.so
-        PRIVATE ${CMAKE_SOURCE_DIR}/src/main/jni/lib/${ANDROID_ABI}/libmodpng.so
-        PRIVATE ${CMAKE_SOURCE_DIR}/src/main/jni/lib/${ANDROID_ABI}/libc++_shared.so
+        PRIVATE ${CMAKE_SOURCE_DIR}/src/main/jni/static/${ANDROID_ABI}/libpdfium.a
+        PRIVATE ${CMAKE_SOURCE_DIR}/src/main/jni/static/${ANDROID_ABI}/libchromium_cxx.a
+        PRIVATE log android jnigraphics dl m
 )
 
 # Specify additional compile options if required
@@ -40,6 +40,4 @@ target_compile_options(jniPdfium PRIVATE
 )
 
 # Specify additional linker flags if necessary
-target_link_options(jniPdfium PRIVATE
-        -Wl,--no-undefined -llog -landroid -ljnigraphics
-)
+target_link_options(jniPdfium PRIVATE -Wl,--no-undefined -Wl,-z,max-page-size=16384)

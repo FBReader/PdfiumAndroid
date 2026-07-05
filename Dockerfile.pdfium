@@ -1,0 +1,9 @@
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates cmake curl file git ninja-build python3 python3-pip unzip xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+RUN git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git /opt/depot_tools
+ENV DEPOT_TOOLS_UPDATE=0
+ENV PATH=/opt/depot_tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin

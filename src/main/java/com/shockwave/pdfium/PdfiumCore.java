@@ -23,10 +23,6 @@ public class PdfiumCore {
 
     static {
         try {
-            System.loadLibrary("c++_shared");
-            System.loadLibrary("modpng");
-            System.loadLibrary("modft2");
-            System.loadLibrary("modpdfium");
             System.loadLibrary("jniPdfium");
         } catch (UnsatisfiedLinkError e) {
             Log.e(TAG, "Native libraries failed to load - " + e);
@@ -466,7 +462,14 @@ public class PdfiumCore {
         }
     }
 
-    /** Get a character box in PDF page coordinates. */
+    /**
+     * Get a normalized character layout box in displayed PDF page coordinates.
+     * The page's intrinsic /Rotate entry is already applied.
+     * Layout bounds are used instead of glyph-shape bounds so broken embedded
+     * font metrics cannot produce boxes spanning most of the page.
+     * The returned rectangle always has {@code left <= right} and
+     * {@code top <= bottom}, as required by Android's {@link RectF} methods.
+     */
     public RectF getTextCharBox(long textPagePtr, int index) {
         if (textPagePtr == 0 || index < 0) {
             return null;
@@ -515,10 +518,19 @@ public class PdfiumCore {
     public RectF mapRectToDevice(PdfDocument doc, int pageIndex, int startX, int startY, int sizeX,
                                  int sizeY, int rotate, RectF coords) {
 
-        Point leftTop = mapPageCoordsToDevice(doc, pageIndex, startX, startY, sizeX, sizeY, rotate,
+        Point first = mapPageCoordsToDevice(doc, pageIndex, startX, startY, sizeX, sizeY, rotate,
                 coords.left, coords.top);
-        Point rightBottom = mapPageCoordsToDevice(doc, pageIndex, startX, startY, sizeX, sizeY, rotate,
+        Point second = mapPageCoordsToDevice(doc, pageIndex, startX, startY, sizeX, sizeY, rotate,
+                coords.right, coords.top);
+        Point third = mapPageCoordsToDevice(doc, pageIndex, startX, startY, sizeX, sizeY, rotate,
+                coords.left, coords.bottom);
+        Point fourth = mapPageCoordsToDevice(doc, pageIndex, startX, startY, sizeX, sizeY, rotate,
                 coords.right, coords.bottom);
-        return new RectF(leftTop.x, leftTop.y, rightBottom.x, rightBottom.y);
+
+        float left = Math.min(Math.min(first.x, second.x), Math.min(third.x, fourth.x));
+        float top = Math.min(Math.min(first.y, second.y), Math.min(third.y, fourth.y));
+        float right = Math.max(Math.max(first.x, second.x), Math.max(third.x, fourth.x));
+        float bottom = Math.max(Math.max(first.y, second.y), Math.max(third.y, fourth.y));
+        return new RectF(left, top, right, bottom);
     }
 }

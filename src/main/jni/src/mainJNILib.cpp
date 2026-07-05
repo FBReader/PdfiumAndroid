@@ -16,7 +16,11 @@ using namespace android;
 
 #include <fpdfview.h>
 #include <fpdf_doc.h>
+#include <fpdf_edit.h>
 #include <fpdf_text.h>
+#include <fpdf_transformpage.h>
+#include <algorithm>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -677,37 +681,47 @@ JNI_FUNC(jobject, PdfiumCore, nativeGetLinkRect)(JNI_ARGS, jlong linkPtr) {
     return env->NewObject(clazz, constructorID, fsRectF.left, fsRectF.top, fsRectF.right, fsRectF.bottom);
 }
 
+struct TextPageHandle {
+    FPDF_PAGE page;
+    FPDF_TEXTPAGE textPage;
+};
+
 JNI_FUNC(jlong, PdfiumCore, nativeLoadTextPage)(JNI_ARGS, jlong pagePtr) {
     FPDF_PAGE page = reinterpret_cast<FPDF_PAGE>(pagePtr);
     if (page == NULL) {
         return 0;
     }
-    return reinterpret_cast<jlong>(FPDFText_LoadPage(page));
+    FPDF_TEXTPAGE textPage = FPDFText_LoadPage(page);
+    if (textPage == NULL) {
+        return 0;
+    }
+    return reinterpret_cast<jlong>(new TextPageHandle{page, textPage});
 }
 
 JNI_FUNC(void, PdfiumCore, nativeCloseTextPage)(JNI_ARGS, jlong textPagePtr) {
-    FPDF_TEXTPAGE textPage = reinterpret_cast<FPDF_TEXTPAGE>(textPagePtr);
-    if (textPage != NULL) {
-        FPDFText_ClosePage(textPage);
+    TextPageHandle *handle = reinterpret_cast<TextPageHandle*>(textPagePtr);
+    if (handle != NULL) {
+        FPDFText_ClosePage(handle->textPage);
+        delete handle;
     }
 }
 
 JNI_FUNC(jint, PdfiumCore, nativeTextCountChars)(JNI_ARGS, jlong textPagePtr) {
-    FPDF_TEXTPAGE textPage = reinterpret_cast<FPDF_TEXTPAGE>(textPagePtr);
-    if (textPage == NULL) {
+    TextPageHandle *handle = reinterpret_cast<TextPageHandle*>(textPagePtr);
+    if (handle == NULL) {
         return 0;
     }
-    return (jint)FPDFText_CountChars(textPage);
+    return (jint)FPDFText_CountChars(handle->textPage);
 }
 
 JNI_FUNC(jstring, PdfiumCore, nativeTextGetText)(JNI_ARGS, jlong textPagePtr, jint startIndex, jint count) {
-    FPDF_TEXTPAGE textPage = reinterpret_cast<FPDF_TEXTPAGE>(textPagePtr);
-    if (textPage == NULL || startIndex < 0 || count <= 0) {
+    TextPageHandle *handle = reinterpret_cast<TextPageHandle*>(textPagePtr);
+    if (handle == NULL || startIndex < 0 || count <= 0) {
         return env->NewStringUTF("");
     }
 
     std::vector<unsigned short> buffer((size_t)count + 1);
-    const int written = FPDFText_GetText(textPage, startIndex, count, buffer.data());
+    const int written = FPDFText_GetText(handle->textPage, startIndex, count, buffer.data());
     if (written <= 1) {
         return env->NewStringUTF("");
     }
@@ -715,31 +729,93 @@ JNI_FUNC(jstring, PdfiumCore, nativeTextGetText)(JNI_ARGS, jlong textPagePtr, ji
 }
 
 JNI_FUNC(jobject, PdfiumCore, nativeTextGetCharBox)(JNI_ARGS, jlong textPagePtr, jint index) {
-    FPDF_TEXTPAGE textPage = reinterpret_cast<FPDF_TEXTPAGE>(textPagePtr);
-    if (textPage == NULL || index < 0) {
+    TextPageHandle *handle = reinterpret_cast<TextPageHandle*>(textPagePtr);
+    if (handle == NULL || index < 0) {
         return NULL;
     }
 
-    double left, right, bottom, top;
-    if (!FPDFText_GetCharBox(textPage, index, &left, &right, &bottom, &top)) {
+    // Loose bounds describe the character's text-layout cell. Tight bounds
+    // use the embedded font's actual glyph metrics, which are frequently
+    // malformed in generated PDFs and can span most of the page.
+    FS_RECTF looseBox;
+    double left;
+    double right;
+    double bottom;
+    double top;
+    const bool hasUsableLooseBox =
+        FPDFText_GetLooseCharBox(handle->textPage, index, &looseBox) &&
+        std::isfinite(looseBox.left) && std::isfinite(looseBox.right) &&
+        std::isfinite(looseBox.bottom) && std::isfinite(looseBox.top) &&
+        std::abs(looseBox.right - looseBox.left) > 0.001f &&
+        std::abs(looseBox.top - looseBox.bottom) > 0.001f;
+    if (hasUsableLooseBox) {
+        left = looseBox.left;
+        right = looseBox.right;
+        bottom = looseBox.bottom;
+        top = looseBox.top;
+    } else if (!FPDFText_GetCharBox(handle->textPage, index, &left, &right, &bottom, &top)) {
         return NULL;
     }
+
+    // Text boxes are reported in unrotated PDF user space, even when the page
+    // has an intrinsic /Rotate entry. Convert them to the displayed page's
+    // user space so their axes and dimensions match FPDF_GetPageWidth/Height.
+    const int rotation = FPDFPage_GetRotation(handle->page);
+    if (rotation != 0) {
+        float cropLeft = 0;
+        float cropBottom = 0;
+        float cropRight = rotation % 2 ? FPDF_GetPageHeight(handle->page)
+                                       : FPDF_GetPageWidth(handle->page);
+        float cropTop = rotation % 2 ? FPDF_GetPageWidth(handle->page)
+                                     : FPDF_GetPageHeight(handle->page);
+        FPDFPage_GetCropBox(handle->page, &cropLeft, &cropBottom, &cropRight, &cropTop);
+
+        const double sourceLeft = left;
+        const double sourceRight = right;
+        const double sourceBottom = bottom;
+        const double sourceTop = top;
+        if (rotation == 1) {
+            left = sourceBottom - cropBottom;
+            right = sourceTop - cropBottom;
+            bottom = cropRight - sourceRight;
+            top = cropRight - sourceLeft;
+        } else if (rotation == 2) {
+            left = cropRight - sourceRight;
+            right = cropRight - sourceLeft;
+            bottom = cropTop - sourceTop;
+            top = cropTop - sourceBottom;
+        } else if (rotation == 3) {
+            left = cropTop - sourceTop;
+            right = cropTop - sourceBottom;
+            bottom = sourceLeft - cropLeft;
+            top = sourceRight - cropLeft;
+        }
+    }
+
+    // PDF user space has its Y axis pointing upwards, whereas RectF requires
+    // left <= right and top <= bottom for contains(), height(), intersection,
+    // and the other Android geometry operations to work. Keep the values in
+    // PDF user-space units, but normalize their ordering for RectF.
+    const jfloat rectLeft = (jfloat)std::min(left, right);
+    const jfloat rectTop = (jfloat)std::min(bottom, top);
+    const jfloat rectRight = (jfloat)std::max(left, right);
+    const jfloat rectBottom = (jfloat)std::max(bottom, top);
 
     jclass clazz = env->FindClass("android/graphics/RectF");
     jmethodID constructorID = env->GetMethodID(clazz, "<init>", "(FFFF)V");
     return env->NewObject(
         clazz,
         constructorID,
-        (jfloat)left,
-        (jfloat)top,
-        (jfloat)right,
-        (jfloat)bottom
+        rectLeft,
+        rectTop,
+        rectRight,
+        rectBottom
     );
 }
 
 JNI_FUNC(jintArray, PdfiumCore, nativeTextSearch)(JNI_ARGS, jlong textPagePtr, jstring pattern) {
-    FPDF_TEXTPAGE textPage = reinterpret_cast<FPDF_TEXTPAGE>(textPagePtr);
-    if (textPage == NULL || pattern == NULL) {
+    TextPageHandle *handle = reinterpret_cast<TextPageHandle*>(textPagePtr);
+    if (handle == NULL || pattern == NULL) {
         return env->NewIntArray(0);
     }
 
@@ -760,7 +836,7 @@ JNI_FUNC(jintArray, PdfiumCore, nativeTextSearch)(JNI_ARGS, jlong textPagePtr, j
     searchText[length] = 0;
     env->ReleaseStringChars(pattern, chars);
 
-    FPDF_SCHHANDLE search = FPDFText_FindStart(textPage, searchText.data(), 0, 0);
+    FPDF_SCHHANDLE search = FPDFText_FindStart(handle->textPage, searchText.data(), 0, 0);
     if (search == NULL) {
         return env->NewIntArray(0);
     }

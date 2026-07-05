@@ -1,38 +1,28 @@
 LOCAL_PATH := $(call my-dir)
 
-#Prebuilt libraries
+# Complete static PDFium archive (includes its bundled third-party libraries).
 include $(CLEAR_VARS)
 LOCAL_MODULE := aospPdfium
 
 ARCH_PATH = $(TARGET_ARCH_ABI)
 
-LOCAL_SRC_FILES := $(LOCAL_PATH)/lib/$(ARCH_PATH)/libmodpdfium.so
+LOCAL_SRC_FILES := $(LOCAL_PATH)/static/$(ARCH_PATH)/libpdfium.a
 
-include $(PREBUILT_SHARED_LIBRARY)
+include $(PREBUILT_STATIC_LIBRARY)
 
-#libmodft2
 include $(CLEAR_VARS)
-LOCAL_MODULE := libmodft2
-
-LOCAL_SRC_FILES := $(LOCAL_PATH)/lib/$(ARCH_PATH)/libmodft2.so
-
-include $(PREBUILT_SHARED_LIBRARY)
-
-#libmodpng
-include $(CLEAR_VARS)
-LOCAL_MODULE := libmodpng
-
-LOCAL_SRC_FILES := $(LOCAL_PATH)/lib/$(ARCH_PATH)/libmodpng.so
-
-include $(PREBUILT_SHARED_LIBRARY)
+LOCAL_MODULE := chromiumCxx
+LOCAL_SRC_FILES := $(LOCAL_PATH)/static/$(ARCH_PATH)/libchromium_cxx.a
+include $(PREBUILT_STATIC_LIBRARY)
 
 #Main JNI library
 include $(CLEAR_VARS)
 LOCAL_MODULE := jniPdfium
 LOCAL_CFLAGS += -DHAVE_PTHREADS
 LOCAL_C_INCLUDES += $(LOCAL_PATH)/include
-LOCAL_SHARED_LIBRARIES := aospPdfium libmodft2 libmodpng  # Removed libmodc++_shared
-LOCAL_LDLIBS += -llog -landroid -ljnigraphics -lc++  # Explicitly link libc++
+LOCAL_STATIC_LIBRARIES := aospPdfium chromiumCxx
+LOCAL_LDLIBS += -llog -landroid -ljnigraphics -ldl -lm
+LOCAL_LDFLAGS += -Wl,--no-undefined -Wl,-z,max-page-size=16384 -Wl,--exclude-libs,ALL
 LOCAL_SRC_FILES := $(LOCAL_PATH)/src/mainJNILib.cpp
 LOCAL_CPPFLAGS += -stdlib=libc++
 LOCAL_CPP_FEATURES += rtti exceptions

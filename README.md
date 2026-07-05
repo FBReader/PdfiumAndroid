@@ -1,4 +1,12 @@
 # Introduction
+
+## Fully static dependency build
+
+Run `./fetch-pdfium.sh` and then `./build-static.sh`. The checkout remains in
+`third_party/pdfium-work/pdfium`; complete archives and their `args.gn` files
+remain in `src/main/jni/static/<abi>`. The only library retained under each
+`src/main/jni/lib/<abi>` directory is the final `libjniPdfium.so`.
+
 This repository is a fork of [barteksc/PdfiumAndroid](https://github.com/meganz/PdfiumAndroid). 
 
 On top of the original project, this fork adds the 16KB page size support for Android15. The changes include:
