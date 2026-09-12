@@ -15,3 +15,7 @@ builddir/*
 freetype-*
 libpng
 publish-mavencentral.gradle
+
+/third_party/
+/build-static/
+/build-ndk-static/

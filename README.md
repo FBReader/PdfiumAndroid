@@ -1,5 +1,12 @@
 # Introduction
 
+## Static archive for an existing Android application
+
+Use `./build-ndk-static.sh arm64-v8a` to build a complete PDFium archive compatible
+with the Android NDK C++ runtime. Sources and toolchains are fetched at pinned
+revisions. See [STATIC_BUILD.md](STATIC_BUILD.md) for prerequisites, all four ABIs,
+linking, source attribution, and the distinction from the standalone JNI build.
+
 ## Fully static dependency build
 
 Run `./fetch-pdfium.sh` and then `./build-static.sh`. The checkout remains in

@@ -4,6 +4,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates cmake curl file git ninja-build python3 python3-pip unzip xz-utils \
     && rm -rf /var/lib/apt/lists/*
-RUN git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git /opt/depot_tools
+RUN git init /opt/depot_tools \
+    && git -C /opt/depot_tools remote add origin https://chromium.googlesource.com/chromium/tools/depot_tools.git \
+    && git -C /opt/depot_tools fetch --depth 1 origin 1b1b01fa912786b88a79f3504176a275183839b5 \
+    && git -C /opt/depot_tools checkout --detach FETCH_HEAD
 ENV DEPOT_TOOLS_UPDATE=0
 ENV PATH=/opt/depot_tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
